@@ -483,7 +483,8 @@ def main(args):
     custom_checkpoint_path += ':.5f}'
   
     checkpoint_callback = ModelCheckpoint(
-        filepath=os.path.join(args.save_dir, args.save_prefix, custom_checkpoint_path),
+        #filepath=os.path.join(args.save_dir, args.save_prefix, custom_checkpoint_path),
+        dirpath=os.path.join(args.save_dir, args.save_prefix, custom_checkpoint_path),
         save_top_k=args.save_top_k,
         verbose=True,
         monitor=args.early_stopping_metric,
