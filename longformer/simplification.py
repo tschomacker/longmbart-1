@@ -28,6 +28,11 @@ from longformer.longformer_encoder_decoder import LongformerSelfAttentionForBart
 from longformer.longformer_encoder_decoder_mbart import MLongformerEncoderDecoderForConditionalGeneration, MLongformerEncoderDecoderConfig
 import datasets
 
+from typing import List
+
+from bert_score import BERTScorer
+import easse.utils.preprocessing as utils_prep
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -113,13 +118,36 @@ def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None)
         rougelsum /= len(generated_strs)
         bleu = sacrebleu.corpus_bleu(generated_strs, [gold_strs])
 
+        _,_,bertscore_f1 =  calculate_bertscore(
+                                                                    sys_sents=generated_strs, 
+                                                                    refs_sents=[gold_strs])
+        bertscore_f1 = bertscore_f1.to(device='cuda')
         return {'vloss': vloss,
                 'rouge1': vloss.new_zeros(1) + rouge1,
                 'rouge2': vloss.new_zeros(1) + rouge2,
                 'rougeL': vloss.new_zeros(1) + rougel,
                 'rougeLsum': vloss.new_zeros(1) + rougelsum,
                 'bleu' : vloss.new_zeros(1) + bleu.score,
-                'decoded' : generated_strs}
+                'decoded' : generated_strs,
+                'bertscore_f1': bertscore_f1
+                }
+def calculate_bertscore(
+    sys_sents: List[str],
+    refs_sents: List[List[str]],
+    lowercase: bool = False,
+    tokenizer: str = "13a",
+):
+
+    """
+    source: https://github.com/feralvam/easse/blob/master/easse/bertscore.py
+    """
+    scorer = BERTScorer(model_type="google/mt5-small")
+
+    sys_sents = [utils_prep.normalize(sent, lowercase, tokenizer) for sent in sys_sents]
+    refs_sents = [[utils_prep.normalize(sent, lowercase, tokenizer) for sent in ref_sents] for ref_sents in refs_sents]
+    refs_sents = [list(r) for r in zip(*refs_sents)]
+    print('bert_score:', scorer.score(sys_sents, refs_sents))
+    return scorer.score(sys_sents, refs_sents) #Precision, Recall, F1
 
 
 class SimplificationDataset(Dataset):
@@ -203,7 +231,13 @@ class Simplifier(pl.LightningModule):
         self.train_dataloader_object = self.val_dataloader_object = self.test_dataloader_object = None
         self.current_checkpoint =0
         self.best_checkpoint = None
-        self.best_metric = 10000 if self.args.early_stopping_metric == 'vloss' else 0 ## keep track of best dev value of whatever metric is used in early stopping callback
+        ## keep track of best dev value of whatever metric is used in early stopping callback
+        if self.args.early_stopping_metric == 'vloss':
+            self.best_metric = 10000
+        elif self.args.early_stopping_metric == 'bertscore_f1':
+            self.best_metric = -1
+        else: 
+            self.best_metric = 0 
         self.num_not_improved = 0
         self.save_hyperparameters()
         
@@ -294,6 +328,7 @@ class Simplifier(pl.LightningModule):
         self.log('rouge2', scores['rouge2'], on_step=False, on_epoch=True, prog_bar=False)
         self.log('rougeL', scores['rougeL'], on_step=False, on_epoch=True, prog_bar=False)
         self.log('rougeLsum', scores['rougeLsum'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('bertscore_f1', scores['bertscore_f1'], on_step=False, on_epoch=True, prog_bar=False)
         
         return scores
 
@@ -301,9 +336,12 @@ class Simplifier(pl.LightningModule):
         for p in self.model.parameters():
             p.requires_grad = True
 
-        names = ['vloss', 'rouge1', 'rouge2', 'rougeL', 'rougeLsum', 'bleu']
+        names = ['vloss', 'rouge1', 'rouge2', 'rougeL', 'rougeLsum', 'bleu','bertscore_f1']
         metrics = []
         for name in names:
+            print('name:', name)
+            for x in outputs:
+                print(x[name])
             metric = torch.stack([x[name] for x in outputs]).mean()
             if self.trainer.use_ddp:
                 torch.distributed.all_reduce(metric, op=torch.distributed.ReduceOp.SUM)

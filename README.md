@@ -141,7 +141,7 @@ python -m longformer.simplification \
 --val_every 1.0 \
 --val_percent_check 1.0 \
 --test_percent_check 1.0 \
---early_stopping_metric 'rougeL' \
+--early_stopping_metric 'bertscore_f1' \
 --patience 10 \
 --lr_reduce_patience 8 \
 --lr_reduce_factor 0.5 \
@@ -175,7 +175,7 @@ python -m longformer.simplify \
 
 
 ```
-python -m longformer.simplify --model_path ./output/longmbart-fine-tuned/w512 --checkpoint "checkpoint{epoch:02d}_{rougeL:.5f}/epoch=39-step=39.ckpt" --tokenizer ./output/longmbart-fine-tuned/w512 --translation ./output/generated/simplification.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 2 \
+python -m longformer.simplify --model_path ./output/longmbart-fine-tuned/w512 --checkpoint "checkpoint{epoch:02d}_{bertscore_f1:.5f}/epoch=30-step=30.ckpt" --tokenizer ./output/longmbart-fine-tuned/w512 --translation ./output/generated/simplification.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 2 \
 --num_workers 5 \
 --gpus 1 \
 --beam_size 6 \
@@ -183,6 +183,7 @@ python -m longformer.simplify --model_path ./output/longmbart-fine-tuned/w512 --
 --tags_included
 
 ```
+
 
 Reference file is optional, if given, will print evaluation metrics (rouge1, rouge2, rougeL, rougeLsum, bleu). 
 If only one target language, use `--tgt_lang` to set, if multiple languages, either give a reference file with tags (`tgt_lang target_sequence`) with `--tags_included` or just a list of target tags with `--target_tags` (one tag per line for each sample in `--test_source`).
