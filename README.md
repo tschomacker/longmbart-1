@@ -141,8 +141,8 @@ python -m longformer.simplification \
 --val_every 1.0 \
 --val_percent_check 1.0 \
 --test_percent_check 1.0 \
---early_stopping_metric 'bertscore_f1' \
---patience 10 \
+--early_stopping_metric 'f_bert' \
+--patience 50 \
 --lr_reduce_patience 8 \
 --lr_reduce_factor 0.5 \
 --grad_ckpt \
@@ -175,13 +175,12 @@ python -m longformer.simplify \
 
 
 ```
-python -m longformer.simplify --model_path ./output/longmbart-fine-tuned/w512 --checkpoint "checkpoint{epoch:02d}_{bertscore_f1:.5f}/epoch=30-step=30.ckpt" --tokenizer ./output/longmbart-fine-tuned/w512 --translation ./output/generated/simplification.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 2 \
+python -m longformer.simplify --model_path ./output/longmbart-fine-tuned/w512 --checkpoint "checkpoint{epoch:02d}_{bertscore_f1:.5f}/epoch=64-step=64.ckpt" --tokenizer ./output/longmbart-fine-tuned/w512 --translation ./output/generated/simplification.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 1 \
 --num_workers 5 \
 --gpus 1 \
 --beam_size 6 \
 --progress_bar_refresh_rate 1 \
---tags_included
-
+--tags_included 
 ```
 
 

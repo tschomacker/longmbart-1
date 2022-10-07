@@ -117,11 +117,13 @@ def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None)
         rougel /= len(generated_strs)
         rougelsum /= len(generated_strs)
         bleu = sacrebleu.corpus_bleu(generated_strs, [gold_strs])
-
-        _,_,bertscore_f1 =  calculate_bertscore(
+        
+        p_bert,r_bert,f_bert =  calculate_bertscore(
                                                                     sys_sents=generated_strs, 
                                                                     refs_sents=[gold_strs])
-        bertscore_f1 = bertscore_f1.to(device='cuda')
+        p_bert = p_bert.to(device='cuda')
+        r_bert = r_bert.to(device='cuda')
+        f_bert = f_bert.to(device='cuda')
         return {'vloss': vloss,
                 'rouge1': vloss.new_zeros(1) + rouge1,
                 'rouge2': vloss.new_zeros(1) + rouge2,
@@ -129,7 +131,9 @@ def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None)
                 'rougeLsum': vloss.new_zeros(1) + rougelsum,
                 'bleu' : vloss.new_zeros(1) + bleu.score,
                 'decoded' : generated_strs,
-                'bertscore_f1': bertscore_f1
+                'p_bert':p_bert,
+                'r_bert': r_bert,
+                'f_bert': f_bert
                 }
 def calculate_bertscore(
     sys_sents: List[str],
@@ -140,13 +144,14 @@ def calculate_bertscore(
 
     """
     source: https://github.com/feralvam/easse/blob/master/easse/bertscore.py
+    return:
+        Precision, Recall, F1
     """
-    scorer = BERTScorer(model_type="google/mt5-small")
+    scorer = BERTScorer(model_type="google/mt5-base")
 
     sys_sents = [utils_prep.normalize(sent, lowercase, tokenizer) for sent in sys_sents]
     refs_sents = [[utils_prep.normalize(sent, lowercase, tokenizer) for sent in ref_sents] for ref_sents in refs_sents]
     refs_sents = [list(r) for r in zip(*refs_sents)]
-    print('bert_score:', scorer.score(sys_sents, refs_sents))
     return scorer.score(sys_sents, refs_sents) #Precision, Recall, F1
 
 
@@ -234,7 +239,7 @@ class Simplifier(pl.LightningModule):
         ## keep track of best dev value of whatever metric is used in early stopping callback
         if self.args.early_stopping_metric == 'vloss':
             self.best_metric = 10000
-        elif self.args.early_stopping_metric == 'bertscore_f1':
+        elif self.args.early_stopping_metric == 'f_bert':
             self.best_metric = -1
         else: 
             self.best_metric = 0 
@@ -328,20 +333,17 @@ class Simplifier(pl.LightningModule):
         self.log('rouge2', scores['rouge2'], on_step=False, on_epoch=True, prog_bar=False)
         self.log('rougeL', scores['rougeL'], on_step=False, on_epoch=True, prog_bar=False)
         self.log('rougeLsum', scores['rougeLsum'], on_step=False, on_epoch=True, prog_bar=False)
-        self.log('bertscore_f1', scores['bertscore_f1'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('f_bert', scores['f_bert'], on_step=False, on_epoch=True, prog_bar=False)
         
         return scores
 
     def validation_epoch_end(self, outputs):
         for p in self.model.parameters():
             p.requires_grad = True
-
-        names = ['vloss', 'rouge1', 'rouge2', 'rougeL', 'rougeLsum', 'bleu','bertscore_f1']
+        # names of the metrics that are going to be logged
+        names = ['vloss', 'rouge1', 'rouge2', 'rougeL', 'rougeLsum', 'bleu','p_bert','r_bert','f_bert']
         metrics = []
         for name in names:
-            print('name:', name)
-            for x in outputs:
-                print(x[name])
             metric = torch.stack([x[name] for x in outputs]).mean()
             if self.trainer.use_ddp:
                 torch.distributed.all_reduce(metric, op=torch.distributed.ReduceOp.SUM)

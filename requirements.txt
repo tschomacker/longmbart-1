@@ -10,3 +10,5 @@ requests
 sacrebleu
 datasets==1.2.1
 sentencepiece
+# required for datasets
+dill==0.3.4
