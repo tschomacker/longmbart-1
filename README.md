@@ -50,13 +50,27 @@ Check your cuda version by running: `nvcc --version`. Please stick to this Insta
    --add_language_tags de_A1 de_A2 de_B1 \
    --initialize_tags de_DE de_DE de_DE
    ```
-   
+   Convert the base model (without domain adaptation)
    ```
    python ./scripts/convert_mbart_to_longformerencoderdecoder.py \
-   --save_model_to ./output/converted-longmbart \
+   --save_model_to ./output/longmbart-large-cc25-base \
    --attention_window 512 \
    --cache_dir ./output/mbart-large-cc25 \
    --base_model facebook/mbart-large-cc25 \
+   --tokenizer_name_or_path facebook/mbart-large-cc25\
+   --add_language_tags de_OR de_SI \
+   --initialize_tags de_DE de_DE \
+   --max_pos 1024 \
+   --verbose 1
+   ```
+   
+   Convert the base model (without domain adaptation)
+   ```
+   python ./scripts/convert_mbart_to_longformerencoderdecoder.py \
+   --save_model_to ./output/longmbart-large-cc25-german-literature \
+   --attention_window 512 \
+   --cache_dir ./output/domain-adaptation/cache \
+   --base_model ./output/domain-adaptation \
    --tokenizer_name_or_path facebook/mbart-large-cc25\
    --add_language_tags de_OR de_SI \
    --initialize_tags de_DE de_DE \
@@ -115,9 +129,9 @@ python -m longformer.simplification \
 
 ```
 python -m longformer.simplification \
---from_pretrained ./output/converted-longmbart \
---tokenizer ./output/converted-longmbart \
---save_dir ./output/longmbart-fine-tuned \
+--from_pretrained ./output/longmbart-large-cc25-german-literature \
+--tokenizer ./output/longmbart-large-cc25-german-literature \
+--save_dir ./output/longmbart-large-cc25-german-literature-simplification \
 --save_prefix "w512" \
 --train_source ./data/gnats/train-source.txt \
 --train_target ./data/gnats/train-target.txt \
@@ -151,6 +165,160 @@ python -m longformer.simplification \
 --tags_included
 ```
 
+```
+python -m longformer.simplification \
+--from_pretrained ./output/converted-longmbart \
+--tokenizer ./output/converted-longmbart \
+--save_dir ./output/longmbart-large-cc25-german-literature-masked \
+--save_prefix "w512" \
+--train_source ./data/textgrid/train_source.txt \
+--train_target ./data/textgrid/train_source.txt \
+--val_source ./data/textgrid/val_source.txt \
+--val_target ./data/textgrid/val_target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 20 \
+--max_input_len 20 \
+--batch_size 12 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 3e-8 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'rougeL' \
+--max_epochs 1 \
+--patience 1 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-domain-adaptation \
+--tags_included
+```
+
+```
+python -m longformer.simplification \
+--from_pretrained ./output/converted-longmbart \
+--tokenizer ./output/converted-longmbart \
+--save_dir ./output/longmbart-large-cc25-german-literature-masked \
+--save_prefix "w512" \
+--train_source ./data/train-source.txt \
+--train_target ./data/train-target.txt \
+--val_source ./data/val-source.txt \
+--val_target ./data/val-target.txt \
+--test_source ./data/test-source.txt \
+--test_target ./data/test-target.txt \
+--max_output_len 20 \
+--max_input_len 20 \
+--batch_size 12 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 0.00003 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'rougeL' \
+--max_epochs 50 \
+--patience 3 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-domain-adaptation \
+--tags_included
+```
+
+```
+python -m longformer.simplification \
+--from_pretrained ./output/converted-longmbart \
+--tokenizer ./output/converted-longmbart \
+--save_dir ./output/longmbart-large-cc25-simplification \
+--save_prefix "w512" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 0.00003 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'f_bert' \
+--patience 3 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-gnats \
+--tags_included
+```
+```
+python -m longformer.simplification \
+--from_pretrained ./output/longmbart-large-cc25-german-literature-masked/w512/checkpoint{epoch:02d}_{rougeL:.5f}/epoch=1-step=38.ckpt \
+--tokenizer ./output/longmbart-large-cc25-german-literature-masked/w512 \
+--save_dir ./output/longmbart-large-cc25-german-literature-masked-simplification \
+--save_prefix "w512" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 0.000000003 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'f_bert' \
+--patience 3 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-gnats \
+--tags_included
+```
+
+
 Early stopping on one of these metrics: vloss, rouge1, rouge2, rougeL, rougeLsum, bleu (requires rouge_score and sacrebleu to be installed).
 In a setting where translating from A to B, set `--src_lang A` and `--tgt_lang B` (input has no language tags), in a multilingual setting where source and target text already have language tags, use `--tags_included`. One of the options have to be selected, otherwise a KeyError will occur. 
 
@@ -175,7 +343,49 @@ python -m longformer.simplify \
 
 
 ```
-python -m longformer.simplify --model_path ./output/longmbart-fine-tuned/w512 --checkpoint "checkpoint{epoch:02d}_{bertscore_f1:.5f}/epoch=64-step=64.ckpt" --tokenizer ./output/longmbart-fine-tuned/w512 --translation ./output/generated/simplification.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 1 \
+python -m longformer.simplify --model_path ./output/longmbart-large-cc25-german-literature-simplification/w512 --checkpoint "checkpoint{epoch:02d}_{f_bert:.5f}/epoch=64-step=64-v1.ckpt" \
+--tokenizer ./output/longmbart-large-cc25-german-literature-simplification/w512 --translation ./output/generated/da-simplification.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 1 \
+--num_workers 5 \
+--gpus 1 \
+--beam_size 6 \
+--progress_bar_refresh_rate 1 \
+--tags_included 
+```
+
+```
+python -m longformer.simplify --model_path ./output/longmbart-large-cc25-german-literature-masked/w512 --checkpoint "checkpoint{epoch:02d}_{rougeL:.5f}/epoch=0-step=38.ckpt" \
+--tokenizer ./output/longmbart-large-cc25-german-literature-masked/w512 --translation ./output/generated/tlongmbart-large-cc25-german-literature-masked-epoch-0-step38.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 1 \
+--num_workers 5 \
+--gpus 1 \
+--beam_size 6 \
+--progress_bar_refresh_rate 1 \
+--tags_included 
+```
+
+
+```
+python -m longformer.simplify --model_path ./output/converted-longmbart \
+--tokenizer ./output/converted-longmbart --translation ./output/generated/converted-longmbart.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 1 \
+--num_workers 5 \
+--gpus 1 \
+--beam_size 6 \
+--progress_bar_refresh_rate 1 \
+--tags_included 
+```
+
+```
+python -m longformer.simplify --model_path ./output/longmbart-large-cc25-german-literature-masked-simplification/w512 --checkpoint "checkpoint{epoch:02d}_{f_bert:.5f}/epoch=36-step=36.ckpt" \
+--tokenizer ./output/longmbart-large-cc25-german-literature-masked-simplification/w512 --translation ./output/generated/longmbart-large-cc25-german-literature-masked-simplification-epoch-36.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 1 \
+--num_workers 5 \
+--gpus 1 \
+--beam_size 6 \
+--progress_bar_refresh_rate 1 \
+--tags_included 
+```
+
+```
+python -m longformer.simplify --model_path ./output/longmbart-large-cc25-simplification/w512 --checkpoint "checkpoint{epoch:02d}_{f_bert:.5f}/epoch=3-step=3.ckpt" \
+--tokenizer ./output/longmbart-large-cc25-simplification/w512 --translation ./output/generated/longmbart-large-cc25-simplification-epoch-3.txt --test_source ./data/gnats/test-source.txt --test_target ./data/gnats/test-target.txt --max_output_len 1024 --max_input_len 1024 --batch 1 \
 --num_workers 5 \
 --gpus 1 \
 --beam_size 6 \

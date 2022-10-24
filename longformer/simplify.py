@@ -223,7 +223,7 @@ class InferenceSimplifier(pl.LightningModule):
             p.requires_grad = True
     
         if self.args.test_target is not None:
-            names = ['rouge1', 'rouge2', 'rougeL', 'rougeLsum', 'bleu']
+            names = ['rouge1', 'rouge2', 'rougeL', 'rougeLsum', 'bleu','f_bert','dow_entropy']
             metrics = []
             for name in names:
                 scores = [x[name] for x in outputs]
@@ -328,17 +328,20 @@ def main(args):
     if Path(args.translation).is_file():
         logging.info("Output file `{}` already exists and will be overwritten...".format(args.translation))
         Path(args.translation).unlink()
-
-    checkpoint_path=os.path.join(args.model_path, args.checkpoint_name)
-    simplifier = InferenceSimplifier(args)
+    if args.checkpoint_name is not None:
+        checkpoint_path=os.path.join(args.model_path, args.checkpoint_name)
     
-    if torch.cuda.is_available and args.gpus > 0:
-        cp = torch.load(checkpoint_path)
-    else:
-        cp = torch.load(checkpoint_path, map_location=torch.device("cpu"))
+    simplifier = InferenceSimplifier(args)
+    if args.checkpoint_name is not None:
+        if torch.cuda.is_available and args.gpus > 0:
+            cp = torch.load(checkpoint_path)
+        else:
+            cp = torch.load(checkpoint_path, map_location=torch.device("cpu"))
     simplifier.model = MLongformerEncoderDecoderForConditionalGeneration.from_pretrained(args.model_path)
    
-    simplifier.load_state_dict(cp["state_dict"])
+    
+    if args.checkpoint_name is not None:
+        simplifier.load_state_dict(cp["state_dict"])
     #simplifier.load_from_checkpoint(checkpoint_path, args) ## does not work ("unexpected keys")
      
     if args.print_params:

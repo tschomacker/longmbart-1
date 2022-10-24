@@ -2,16 +2,54 @@
 
 import itertools as it
 from pathlib import Path
-from typing import Sequence, Union, Generator
+from typing import List, Sequence, Union, Generator
 
 from datasets import load_dataset
 from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArguments
 from transformers import MBartForConditionalGeneration, MBartTokenizer
 import argparse
 
-import os
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import random
+from tqdm.auto import tqdm
 
+import torch
+
+
+def create_batches_from_file(filepath:str,batch_size=8,mask_percentage=15):
+    with open(filepath) as f:
+        batches = []
+        sentences_batch=[]
+        for line in f:
+            # append and remove line break
+            sentences_batch.append(line.strip())
+            # add current batch to batch list
+            if len(sentences_batch) == batch_size:
+                batches.append(create_batch(sentences_batch, mask_percentage))
+                sentences_batch = []
+        # add the last batch, which has size < batch_size
+        if len(sentences_batch) > 0:
+            batches.append(create_batch(sentences_batch, mask_percentage))
+    return batches
+
+
+def create_batch(sentences:List, mask_percentage=15):
+    
+    input_batch = []
+    decoder_input_batch = []
+    labels_batch = []
+    for sentence in sentences:
+        masked_words = []
+        for word in sentence.split(' '):
+            if random.randint(0, 100)  > mask_percentage:
+                masked_words.append(word)
+            else:
+                # masking
+                masked_words.append('<mask>')
+        input_batch.append(' '.join(masked_words)+'</s>')
+        decoder_input_batch.append('<s>'+sentence)
+        labels_batch.append(sentence+'</s>')
+
+    return input_batch, decoder_input_batch, labels_batch
 
 
 def main():
@@ -25,86 +63,54 @@ def main():
     
     args = parser.parse_args()
 
-    model_card = 'facebook/mbart-large-cc25'#args.base_model
+    model_card = args.base_model
 
     # this code is mostly based on this discussion: https://github.com/huggingface/transformers/issues/5096
+    # https://moon-ci-docs.huggingface.co/docs/transformers/pr_18904/en/model_doc/mbart#training-of-mbart
+    
+    model = MBartForConditionalGeneration.from_pretrained(model_card).to("cuda")
+    tok = MBartTokenizer.from_pretrained(model_card)
+    
+    #print(input_batch)
+    #print(decoder_input_batch)
+    #print(labels_batch)
 
-    model = MBartForConditionalGeneration.from_pretrained(model_card)
-    tok = MBartTokenizer.from_pretrained('facebook/mbart-large-cc25')
+    input_file = '../data/domain_adaptation_sentences.txt'
+    print('start creating the batches')
+    batches = create_batches_from_file(input_file,batch_size=8,mask_percentage=15)
+    max_sentence_length = 30
 
-    input_batch = ["My dog is <mask></s>", "It loves to play in the <mask></s>"]
-    decoder_input_batch = ["<s>My dog is cute", "<s>It loves to play in the park"]
-    labels_batch = ["My dog is cute</s>", "It loves to play in the park</s>"]
+    for input_batch, decoder_input_batch, labels_batch in tqdm(batches, desc="Training Batch(es)"):
 
-    input_ids = tok.batch_encode_plus(input_batch, add_special_tokens=False, return_tensors="pt", padding=True).input_ids
-    decoder_input_ids = tok.batch_encode_plus(decoder_input_batch, add_special_tokens=False, return_tensors="pt", padding=True).input_ids
-    labels = tok.batch_encode_plus(labels_batch, add_special_tokens=False, return_tensors="pt", padding=True).input_ids
+        input_ids = tok.batch_encode_plus(input_batch, 
+                                            add_special_tokens=False, 
+                                            return_tensors="pt", 
+                                            padding=True,
+                                            truncation=True,
+                                            max_length=max_sentence_length).input_ids.cuda()
 
-    loss = model(input_ids=input_ids, decoder_input_ids=decoder_input_ids, labels=labels)[0]
+        decoder_input_ids = tok.batch_encode_plus(decoder_input_batch, 
+                                                    add_special_tokens=False, 
+                                                    return_tensors="pt", 
+                                                    padding=True,
+                                                    truncation=True,
+                                                    max_length=max_sentence_length).input_ids.cuda()
+
+        labels = tok.batch_encode_plus(labels_batch, 
+                                        add_special_tokens=False, 
+                                        return_tensors="pt", 
+                                        padding=True,
+                                        truncation=True,
+                                        max_length=max_sentence_length).input_ids.cuda()
+
+        loss = model(input_ids=input_ids, decoder_input_ids=decoder_input_ids, labels=labels)[0]
+        #del input_ids
+        #del decoder_input_ids
+        #del labels
+        #torch.cuda.empty_cache()
     print(loss)
-
-    # print('Domain Adaptation for',model_card,'vocab size:',model.config.vocab_size 
-    # ,'and a tokenizer with a vocab_size:', len(tokenizer))
-
-    # datasets = load_dataset(
-    #     'text', 
-    #     data_files={
-    #         "train": '../data/domain-adaptation-train.txt', 
-    #         "val": '../data/domain-adaptation-train.txt'
-    #     }
-    # )
-
-    # print(datasets)
-
-
-    # tokenized_datasets = datasets.map(
-    #     lambda examples: tokenizer(examples['text'], truncation=True, max_length=model.config.max_position_embeddings), 
-    #     batched=True
-    # )
-
-    # print(tokenized_datasets)
-    # print('train',tokenized_datasets['train'])
-
-    # for sample in tokenized_datasets['train']:
-    #     print('sample',sample)
-
-
-
-    # training_args = TrainingArguments(
-    #     output_dir="../output/domain_pre_training",
-    #     overwrite_output_dir=True,
-    #     max_steps=100,
-    #     per_device_train_batch_size=1,
-    #     per_device_eval_batch_size=1,
-    #     evaluation_strategy="steps",
-    #     save_steps=50,
-    #     save_total_limit=2,
-    #     logging_steps=50,
-    #     seed=42,
-    #     # fp16=True,
-    #     dataloader_num_workers=2,
-    #     disable_tqdm=False,
-    #     no_cuda=True,
-    # )
-
-    # # DataCollatorForLanguageModeling do NOT work with mBART -> https://github.com/huggingface/transformers/issues/11451
-
-
-    # data_collator = DataCollatorForLanguageModeling(
-    #     tokenizer=tokenizer, mlm=True, mlm_probability=0.15
-    # )
-    # model.resize_token_embeddings(len(tokenizer))
-
-    # trainer = Trainer(
-    #     model=model,
-    #     args=training_args,
-    #     train_dataset=tokenized_datasets['train'],
-    #     eval_dataset=tokenized_datasets['val'],
-    #     data_collator=data_collator,
-    #     tokenizer=tokenizer,  # This tokenizer has new tokens
-    # )
-
-    # trainer.train()
+    #https://huggingface.co/docs/transformers/serialization?highlight=save%20model#onnx
+    model.save_pretrained("../output/spt-domain-adaptation")
 
 if __name__ == "__main__":
     main()

@@ -7,7 +7,8 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoConfig
 from transformers.optimization import get_linear_schedule_with_warmup, Adafactor
-import nlp
+import spacy
+from  math import log2
 from rouge_score import rouge_scorer
 import sacrebleu
 
@@ -22,6 +23,9 @@ from longformer import LongformerEncoderDecoderForConditionalGeneration, Longfor
 from longformer.sliding_chunks import pad_to_window_size
 
 import logging
+from transformers import logging as transformers_logging
+
+transformers_logging.set_verbosity_error()
 from transformers import MBartTokenizer
 from transformers import MBartForConditionalGeneration
 from longformer.longformer_encoder_decoder import LongformerSelfAttentionForBart
@@ -99,6 +103,12 @@ def remove_special_tokens(tokenizer, special_token_substrings):
     return tokenizer
 
 def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None):
+        spacy_model_name = "de_core_news_sm"
+        try:
+            nlp = spacy.load(spacy_model_name)
+        except OSError:
+            spacy.cli.download(spacy_model_name)
+            nlp = spacy.load(spacy_model_name)
         if vloss is None:
             vloss = torch.zeros(len(gold_strs))
         if remove_trg_tag:
@@ -117,13 +127,16 @@ def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None)
         rougel /= len(generated_strs)
         rougelsum /= len(generated_strs)
         bleu = sacrebleu.corpus_bleu(generated_strs, [gold_strs])
+
+        print('generated_strs',type(generated_strs),'generated_strs[0]',type(generated_strs[0]))
         
         p_bert,r_bert,f_bert =  calculate_bertscore(
                                                                     sys_sents=generated_strs, 
                                                                     refs_sents=[gold_strs])
-        p_bert = p_bert.to(device='cuda')
-        r_bert = r_bert.to(device='cuda')
-        f_bert = f_bert.to(device='cuda')
+        #p_bert = p_bert.to(device='cuda')
+        #r_bert = r_bert.to(device='cuda')
+        #f_bert = f_bert.to(device='cuda')
+        dow_entropy=calculate_deck_of_word_entropy(nlp,generated_strs)
         return {'vloss': vloss,
                 'rouge1': vloss.new_zeros(1) + rouge1,
                 'rouge2': vloss.new_zeros(1) + rouge2,
@@ -131,9 +144,10 @@ def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None)
                 'rougeLsum': vloss.new_zeros(1) + rougelsum,
                 'bleu' : vloss.new_zeros(1) + bleu.score,
                 'decoded' : generated_strs,
-                'p_bert':p_bert,
-                'r_bert': r_bert,
-                'f_bert': f_bert
+                'p_bert':vloss.new_zeros(1) + p_bert,
+                'r_bert': vloss.new_zeros(1) + r_bert,
+                'f_bert': vloss.new_zeros(1) + f_bert,
+                'dow_entropy':vloss.new_zeros(1) + dow_entropy
                 }
 def calculate_bertscore(
     sys_sents: List[str],
@@ -148,12 +162,43 @@ def calculate_bertscore(
         Precision, Recall, F1
     """
     scorer = BERTScorer(model_type="google/mt5-base")
-
+    
     sys_sents = [utils_prep.normalize(sent, lowercase, tokenizer) for sent in sys_sents]
     refs_sents = [[utils_prep.normalize(sent, lowercase, tokenizer) for sent in ref_sents] for ref_sents in refs_sents]
     refs_sents = [list(r) for r in zip(*refs_sents)]
     return scorer.score(sys_sents, refs_sents) #Precision, Recall, F1
 
+def calculate_deck_of_word_entropy(nlp,sentences:List[str]):
+    entropys = []
+    for sentence in sentences:
+        token_count_dict = {}
+        # count each token
+        for token in nlp(sentence):
+            token_text = token.text.lower()
+            if token_text in token_count_dict.keys():
+                token_count_dict[token_text]['count'] = token_count_dict[token_text]['count']+1
+            else:
+                token_count_dict[token_text] = {}
+                token_count_dict[token_text]['count'] = 1
+            
+        total_number_of_tokens = 0
+        for key in token_count_dict.keys():
+            total_number_of_tokens += token_count_dict[key]['count']
+        
+        # calculate the probability
+        for key in token_count_dict.keys():
+            token_count_dict[key]['probability'] = token_count_dict[key]['count']/total_number_of_tokens
+            
+        # calculate the token-level entropy
+        for key in token_count_dict.keys():
+            token_count_dict[key]['entropy'] = -(log2(token_count_dict[key]['probability']))
+            
+        # calculate the sentence-level entropy
+        sentence_entropy = 0
+        for key in token_count_dict.keys():
+            sentence_entropy += token_count_dict[key]['probability'] * token_count_dict[key]['entropy']
+        entropys.append(sentence_entropy)
+    return sum(entropys)/len(entropys)
 
 class SimplificationDataset(Dataset):
     def __init__(self, inputs, labels, name, tokenizer, max_input_len, max_output_len, src_lang, tgt_lang, tags_included):
@@ -247,6 +292,10 @@ class Simplifier(pl.LightningModule):
         self.save_hyperparameters()
         
     def _load_pretrained(self):
+        if self.args.from_pretrained.endswith(".ckpt"):
+            print('Load',self.args.from_pretrained,'as checkpoint')
+        else:
+            print('Load',self.args.from_pretrained,'as pretrained')
         self.model = MLongformerEncoderDecoderForConditionalGeneration.from_pretrained(self.args.from_pretrained, config=self.config)
         self.tokenizer = MBartTokenizer.from_pretrained(self.args.tokenizer, use_fast=True)
         if self.tags_included:
@@ -255,7 +304,16 @@ class Simplifier(pl.LightningModule):
             self.model.config.decoder_start_token_id = self.tokenizer.lang_code_to_id[self.tgt_lang]
     
     def _set_config(self):
-        self.config = MLongformerEncoderDecoderConfig.from_pretrained(self.args.from_pretrained)
+        if self.args.from_pretrained.endswith(".ckpt"):
+            path_split = self.args.from_pretrained.split('/')
+            path_split.pop(-1)
+            path_split.pop(-1)
+            config_folder = '/'.join(path_split)
+        else:
+            config_folder = self.args.from_pretrained
+
+        print('Load config from',config_folder)
+        self.config = MLongformerEncoderDecoderConfig.from_pretrained(config_folder)
         self.config.attention_dropout = self.args.attention_dropout
         self.config.dropout = self.args.dropout
         self.config.activation_dropout = self.args.activation_dropout
@@ -349,6 +407,7 @@ class Simplifier(pl.LightningModule):
                 torch.distributed.all_reduce(metric, op=torch.distributed.ReduceOp.SUM)
                 metric /= self.trainer.world_size
             metrics.append(metric)
+
         logs = dict(zip(*[names, metrics]))
         print("Evaluation on checkpoint [{}] ".format(self.current_checkpoint))
         for m,v in logs.items():

@@ -4,7 +4,7 @@ tensorboardX
 test-tube==0.7.5
 nltk==3.5
 numpy
-nlp
+#nlp
 rouge_score==0.0.4
 requests
 sacrebleu
@@ -12,3 +12,4 @@ datasets==1.2.1
 sentencepiece
 # required for datasets
 dill==0.3.4
+spacy
