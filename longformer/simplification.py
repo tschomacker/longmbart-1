@@ -128,15 +128,20 @@ def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None)
         rougelsum /= len(generated_strs)
         bleu = sacrebleu.corpus_bleu(generated_strs, [gold_strs])
 
-        print('generated_strs',type(generated_strs),'generated_strs[0]',type(generated_strs[0]))
+        #print('generated_strs',type(generated_strs),'generated_strs[0]',type(generated_strs[0]))
         
         p_bert,r_bert,f_bert =  calculate_bertscore(
                                                                     sys_sents=generated_strs, 
                                                                     refs_sents=[gold_strs])
-        #p_bert = p_bert.to(device='cuda')
-        #r_bert = r_bert.to(device='cuda')
-        #f_bert = f_bert.to(device='cuda')
-        dow_entropy=calculate_deck_of_word_entropy(nlp,generated_strs)
+        p_bert = p_bert.to(device=vloss.new_zeros(1).device)
+        r_bert = r_bert.to(device=vloss.new_zeros(1).device)
+        f_bert = f_bert.to(device=vloss.new_zeros(1).device)
+        bow_entropy =bag_of_word_entropy(nlp,generated_strs)
+        bow_entropy = torch.as_tensor(bow_entropy)
+        bow_entropy = bow_entropy.to(device=vloss.new_zeros(1).device)
+        sup_entropy =shortest_unique_prefix(nlp,generated_strs)
+        sup_entropy = torch.as_tensor(sup_entropy)
+        sup_entropy = sup_entropy.to(device=vloss.new_zeros(1).device)
         return {'vloss': vloss,
                 'rouge1': vloss.new_zeros(1) + rouge1,
                 'rouge2': vloss.new_zeros(1) + rouge2,
@@ -147,7 +152,8 @@ def get_eval_scores(gold_strs, generated_strs, remove_trg_tag=False, vloss=None)
                 'p_bert':vloss.new_zeros(1) + p_bert,
                 'r_bert': vloss.new_zeros(1) + r_bert,
                 'f_bert': vloss.new_zeros(1) + f_bert,
-                'dow_entropy':vloss.new_zeros(1) + dow_entropy
+                'bow_entropy':vloss.new_zeros(1) + bow_entropy,
+                'sup_entropy':vloss.new_zeros(1) + sup_entropy
                 }
 def calculate_bertscore(
     sys_sents: List[str],
@@ -166,9 +172,13 @@ def calculate_bertscore(
     sys_sents = [utils_prep.normalize(sent, lowercase, tokenizer) for sent in sys_sents]
     refs_sents = [[utils_prep.normalize(sent, lowercase, tokenizer) for sent in ref_sents] for ref_sents in refs_sents]
     refs_sents = [list(r) for r in zip(*refs_sents)]
-    return scorer.score(sys_sents, refs_sents) #Precision, Recall, F1
+    precision, recall, f1 = scorer.score(sys_sents, refs_sents)
+    precision = sum(precision)/len(precision)
+    recall = sum(recall)/len(recall)
+    f1 = sum(f1)/len(f1)
+    return precision, recall, f1
 
-def calculate_deck_of_word_entropy(nlp,sentences:List[str]):
+def bag_of_word_entropy(nlp,sentences:List[str]):
     entropys = []
     for sentence in sentences:
         token_count_dict = {}
@@ -199,6 +209,49 @@ def calculate_deck_of_word_entropy(nlp,sentences:List[str]):
             sentence_entropy += token_count_dict[key]['probability'] * token_count_dict[key]['entropy']
         entropys.append(sentence_entropy)
     return sum(entropys)/len(entropys)
+
+def shortest_unique_prefix(nlp, sentences, start_index_input=None):
+    if isinstance(sentences, str):
+        sentences = [sentences]
+    
+    sentences_unique_prefix_lengths = []
+    for sentence in sentences:
+        token_list = [token.text.lower() for token in nlp(sentence)]
+
+        # calculate the start index
+        if start_index_input == None:
+            start_index = int(len(token_list)/2+1)
+        else:
+            start_index = start_index_input
+
+
+        unique_prefixes = []
+        current_prefix_length = 1
+        first_half = token_list[:start_index]
+
+
+        # shift the search window
+        for window_start_index in range(start_index, len(token_list)-1):
+            # generate all prefixes in the current window
+            for current_prefix_length in range(1,(len(token_list)-1-window_start_index)):
+
+                current_prefix = token_list[window_start_index:window_start_index+current_prefix_length]
+
+                found = any(first_half[idx : idx + len(current_prefix)] == current_prefix
+                        for idx in range(start_index))
+                if not found:
+                    # it is uinque, so add it to the list
+                    unique_prefixes.append(current_prefix)
+        # no unique prefix found
+        if unique_prefixes == []:
+            second_half = token_list[start_index:len(token_list)]
+            sentences_unique_prefix_lengths.append(len(second_half))
+        else:
+            # sort, so the shortest is the first entry
+            unique_prefixes.sort(key = len)
+            sentences_unique_prefix_lengths.append(len(unique_prefixes[0]))
+    return int(sum(sentences_unique_prefix_lengths) / len(sentences))
+        
 
 class SimplificationDataset(Dataset):
     def __init__(self, inputs, labels, name, tokenizer, max_input_len, max_output_len, src_lang, tgt_lang, tags_included):
@@ -392,6 +445,8 @@ class Simplifier(pl.LightningModule):
         self.log('rougeL', scores['rougeL'], on_step=False, on_epoch=True, prog_bar=False)
         self.log('rougeLsum', scores['rougeLsum'], on_step=False, on_epoch=True, prog_bar=False)
         self.log('f_bert', scores['f_bert'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('bow_entropy', scores['bow_entropy'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('sup_entropy', scores['sup_entropy'], on_step=False, on_epoch=True, prog_bar=False)
         
         return scores
 
@@ -399,7 +454,8 @@ class Simplifier(pl.LightningModule):
         for p in self.model.parameters():
             p.requires_grad = True
         # names of the metrics that are going to be logged
-        names = ['vloss', 'rouge1', 'rouge2', 'rougeL', 'rougeLsum', 'bleu','p_bert','r_bert','f_bert']
+        names = ['vloss', 'rouge1', 'rouge2', 'rougeL', 'rougeLsum', 
+                    'bleu','p_bert','r_bert','f_bert','bow_entropy','sup_entropy']
         metrics = []
         for name in names:
             metric = torch.stack([x[name] for x in outputs]).mean()
