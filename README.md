@@ -444,41 +444,13 @@ pip install -e .
 ## Masterthesis Commands
 ### 1. ...
 ### 2. Domain Adaptation
-#### 2.0 Debug F-BERT for batch size > 1
-```
-python -m longformer.simplification \
---from_pretrained ./output/converted-longmbart \
---tokenizer ./output/converted-longmbart \
---save_dir ./output/longmbart-large-cc25-german-literature-masked \
---save_prefix "5" \
---train_source ./data/textgrid/5_train_source.txt \
---train_target ./data/textgrid/5_train_target.txt \
---val_source ./data/textgrid/5_val_source.txt \
---val_target ./data/textgrid/5_val_target.txt \
---test_source ./data/textgrid/5_test_source.txt \
---test_target ./data/textgrid/5_test_target.txt \
---max_output_len 20 \
---max_input_len 20 \
---batch_size 12 \
---grad_accum 60 --num_workers 5 --gpus 1 --seed 222 --attention_dropout 0.1 --dropout 0.3 \
---attention_mode sliding_chunks --attention_window 512 --label_smoothing 0.2 \
---lr 3e-8 \
---val_every 1.0 --val_percent_check 1.0 \
---test_percent_check 1.0 \
---early_stopping_metric 'rougeL' \
---max_epochs 1 \
---patience 1 \
---lr_reduce_patience 8 --lr_reduce_factor 0.5 --grad_ckpt --progress_bar_refresh_rate 10 \
---wandb longmbart-large-cc25-german-literature-masked \
---tags_included
-```
 #### 2.1. Bucket Size 50
 ```
 python -m longformer.simplification \
 --from_pretrained ./output/converted-longmbart \
 --tokenizer ./output/converted-longmbart \
 --save_dir ./output/longmbart-large-cc25-german-literature-masked \
---save_prefix "50" \
+--save_prefix "50-lr_auto" \
 --train_source ./data/textgrid/50_train_source.txt \
 --train_target ./data/textgrid/50_train_source.txt \
 --val_source ./data/textgrid/50_val_source.txt \
@@ -490,18 +462,19 @@ python -m longformer.simplification \
 --batch_size 12 \
 --grad_accum 60 --num_workers 5 --gpus 1 --seed 222 --attention_dropout 0.1 --dropout 0.3 \
 --attention_mode sliding_chunks --attention_window 512 --label_smoothing 0.2 \
---lr 3e-8 \
---val_every 1.0 --val_percent_check 1.0 \
+--lr 3e-20 \
+--lr_auto_steps 20 \
+--val_every 0.1 --val_percent_check 1.0 \
 --test_percent_check 1.0 \
 --early_stopping_metric 'rougeL' \
 --max_epochs 1 \
 --patience 1 \
---lr_reduce_patience 8 --lr_reduce_factor 0.5 --grad_ckpt --progress_bar_refresh_rate 10 \
+--lr_reduce_patience 8 --lr_reduce_factor 0.5 --grad_ckpt --progress_bar_refresh_rate 1 \
 --wandb longmbart-large-cc25-german-literature-masked \
 --tags_included
 ```
 
-#### 2.2. Bucket Size 150
+#### 2.2. Bucket Size 100
 ```
 python -m longformer.simplification \
 --from_pretrained ./output/converted-longmbart \
@@ -529,7 +502,7 @@ python -m longformer.simplification \
 --wandb longmbart-large-cc25-german-literature-masked \
 --tags_included
 ```
-#### 2.2. Bucket Size 100
+#### 2.3. Bucket Size 150
 ```
 python -m longformer.simplification \
 --from_pretrained ./output/converted-longmbart \
@@ -555,5 +528,241 @@ python -m longformer.simplification \
 --patience 1 \
 --lr_reduce_patience 8 --lr_reduce_factor 0.5 --grad_ckpt --progress_bar_refresh_rate 10 \
 --wandb longmbart-large-cc25-german-literature-masked \
+--tags_included
+```
+
+### 3. Fine-Tuning
+#### 3.0. ONLY Fine-Tune
+#### 3.0.0 Zero Shot
+```
+python -m longformer.simplification \
+--from_pretrained ./output/converted-longmbart \
+--tokenizer ./output/converted-longmbart \
+--save_dir ./output/longmbart-large-cc25-simplification \
+--save_prefix "w512-zero" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 3e-10 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'f_bert' \
+--max_epochs 0 \
+--patience 0 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-gnats \
+--tags_included
+```
+#### 3.0.1 One Shot
+```
+python -m longformer.simplification \
+--from_pretrained ./output/converted-longmbart \
+--tokenizer ./output/converted-longmbart \
+--save_dir ./output/longmbart-large-cc25-simplification \
+--save_prefix "w512-one" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 1 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 3e-10 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'f_bert' \
+--max_epochs 1 \
+--patience 1 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-gnats \
+--tags_included
+```
+#### 3.0.1 Few Shot
+```
+python -m longformer.simplification \
+--from_pretrained ./output/converted-longmbart \
+--tokenizer ./output/converted-longmbart \
+--save_dir ./output/longmbart-large-cc25-simplification \
+--save_prefix "w512-few" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 1 \
+--num_workers 5 --gpus 1 --seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 3e-10 \
+--lr_auto_steps 1000 \
+--val_every 1.0 --val_percent_check 1.0 --test_percent_check 1.0 \
+--early_stopping_metric 'rougeL' \
+--max_epochs 100 \
+--patience 10 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 1 \
+--wandb longmbart-gnats \
+--tags_included
+```
+
+#### 3.3.1 Bucket Size 50 + Zero Shot
+```
+python -m longformer.simplification \
+--from_pretrained ./output/longmbart-large-cc25-german-literature-masked/50/checkpoint{epoch:02d}_{rougeL:.5f}/epoch=0-step=30.ckpt \
+--tokenizer ./output/longmbart-large-cc25-german-literature-masked/50 \
+--save_dir ./output/longmbart-large-cc25-german-literature-masked-simplification \
+--save_prefix "w512-tg50-zero" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 3e-10 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'f_bert' \
+--max_epochs 0 \
+--patience 0 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-gnats \
+--tags_included
+```
+
+#### 3.3.1 Bucket Size 50 + One Shot
+```
+python -m longformer.simplification \
+--from_pretrained ./output/longmbart-large-cc25-german-literature-masked/50/checkpoint{epoch:02d}_{rougeL:.5f}/epoch=0-step=30.ckpt \
+--tokenizer ./output/longmbart-large-cc25-german-literature-masked/50 \
+--save_dir ./output/longmbart-large-cc25-german-literature-masked-simplification \
+--save_prefix "w512-tg50-one" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 3e-10 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'f_bert' \
+--max_epochs 1 \
+--patience 1 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-gnats \
+--tags_included
+```
+#### 3.3.2 Bucket Size 50
+
+```
+python -m longformer.simplification \
+--from_pretrained ./output/longmbart-large-cc25-german-literature-masked/50/checkpoint{epoch:02d}_{rougeL:.5f}/epoch=0-step=30.ckpt \
+--tokenizer ./output/longmbart-large-cc25-german-literature-masked/50 \
+--save_dir ./output/longmbart-large-cc25-german-literature-masked-simplification \
+--save_prefix "w512-tg50-one" \
+--train_source ./data/gnats/train-source.txt \
+--train_target ./data/gnats/train-target.txt \
+--val_source ./data/gnats/val-source.txt \
+--val_target ./data/gnats/val-target.txt \
+--test_source ./data/gnats/test-source.txt \
+--test_target ./data/gnats/test-target.txt \
+--max_output_len 1024 \
+--max_input_len 1024 \
+--batch_size 1 \
+--grad_accum 60 \
+--num_workers 5 \
+--gpus 1 \
+--seed 222 \
+--attention_dropout 0.1 \
+--dropout 0.3 \
+--attention_mode sliding_chunks \
+--attention_window 512 \
+--label_smoothing 0.2 \
+--lr 3e-10 \
+--val_every 1.0 \
+--val_percent_check 1.0 \
+--test_percent_check 1.0 \
+--early_stopping_metric 'f_bert' \
+--patience 10 \
+--lr_reduce_patience 8 \
+--lr_reduce_factor 0.5 \
+--grad_ckpt \
+--progress_bar_refresh_rate 10 \
+--wandb longmbart-gnats \
 --tags_included
 ```

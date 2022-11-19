@@ -37,6 +37,8 @@ from typing import List
 from bert_score import BERTScorer
 import easse.utils.preprocessing as utils_prep
 
+import matplotlib.pyplot as plt
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -211,6 +213,11 @@ def bag_of_word_entropy(nlp,sentences:List[str]):
     return sum(entropys)/len(entropys)
 
 def shortest_unique_prefix(nlp, sentences, start_index_input=None):
+    """
+    Measures the entropy by calculating the length of the shortest unique prefix. 
+    For more details please refer to 
+    http://pages.cs.aueb.gr/~yiannisk/PAPERS/english.pdf, pages 3-4
+    """
     if isinstance(sentences, str):
         sentences = [sentences]
     
@@ -405,7 +412,7 @@ class Simplifier(pl.LightningModule):
                             'input_size': batch[0].numel(),
                             'output_size': batch[1].numel(),
                             'mem': torch.cuda.memory_allocated(loss.device) / 1024 ** 3 if torch.cuda.is_available() else 0}
-        self.log('train-loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=False)
+        self.log('train-loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_nb):
@@ -482,7 +489,17 @@ class Simplifier(pl.LightningModule):
         
 
     def test_step(self, batch, batch_nb):
-        return self.validation_step(batch, batch_nb)
+
+        scores = self.validation_step(batch, batch_nb)
+        self.log('test-bleu', scores['bleu'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('test-rouge1', scores['rouge1'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('test-rouge2', scores['rouge2'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('test-rougeL', scores['rougeL'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('test-rougeLsum', scores['rougeLsum'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('test-f_bert', scores['f_bert'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('test-bow_entropy', scores['bow_entropy'], on_step=False, on_epoch=True, prog_bar=False)
+        self.log('test-sup_entropy', scores['sup_entropy'], on_step=False, on_epoch=True, prog_bar=False)
+        return scores
 
     def test_epoch_end(self, outputs):
         result = self.validation_epoch_end(outputs)
@@ -581,6 +598,7 @@ class Simplifier(pl.LightningModule):
         parser.add_argument("--min_delta", type=float, default=0.0, help="Minimum change in the monitored quantity to qualify as an improvement.")
         parser.add_argument("--lr_reduce_patience", type=int, default=8, help="Patience for LR reduction in Plateau scheduler.")
         parser.add_argument("--lr_reduce_factor", type=float, default=0.5, help="Learning rate reduce factor for Plateau scheduler.")
+        parser.add_argument("--lr_auto_steps", type=int, default=0, help="Number of trainings for calculating the optimal Learning Rate. If lr_auto_steps = 0, no calculation is done. If the calculation fails, the given lr is used.")
         parser.add_argument("--disable_checkpointing", action='store_true', help="No logging or checkpointing")
         parser.add_argument("--save_top_k", type=int, default=5, help="Number of best checkpoints to keep. Others will be removed.")
         parser.add_argument('--grad_ckpt', action='store_true', help='Enable gradient checkpointing to save memory')
@@ -632,7 +650,10 @@ def main(args):
     # if args.early_stopping_metric == 'val_loss':
     if args.early_stopping_metric == 'vloss':
         model.lr_mode='min'
-    early_stop_callback = EarlyStopping(monitor=args.early_stopping_metric, min_delta=args.min_delta, patience=args.patience, verbose=True, mode=model.lr_mode) # metrics: val_loss, bleu, rougeL
+    early_stop_callback = EarlyStopping(monitor=args.early_stopping_metric, 
+                                        min_delta=args.min_delta, 
+                                        patience=args.patience, 
+                                        verbose=True, mode=model.lr_mode) # metrics: val_loss, bleu, rougeL
     
     custom_checkpoint_path = "checkpoint{{epoch:02d}}_{{{}".format(args.early_stopping_metric )
     custom_checkpoint_path += ':.5f}'
@@ -645,6 +666,9 @@ def main(args):
         monitor=args.early_stopping_metric,
         mode=model.lr_mode,
         prefix='')
+
+    #jay_tuning_callback = TuneReportCallback(metrics,on)
+                                            
 
     trainer = pl.Trainer(gpus=args.gpus, distributed_backend='ddp' if torch.cuda.is_available() else None,
                          track_grad_norm=-1,
@@ -671,6 +695,30 @@ def main(args):
         model.tokenizer = remove_special_tokens(model.tokenizer, args.remove_special_tokens_containing)
         print("special tokens after:", model.tokenizer.special_tokens_map)
     model.tokenizer.save_pretrained(args.save_dir + "/" + args.save_prefix)
+
+    if args.lr_auto_steps > 0 and args.max_epochs > 0:
+        print('start search for optimal learning rate')
+        lr_finder = trainer.tuner.lr_find(model, 
+                                            min_lr=3e-20, 
+                                            max_lr=3e-1, 
+                                            num_training=args.lr_auto_steps, 
+                                            mode='exponential', 
+                                            early_stop_threshold=1000.0, 
+                                            update_attr=False)
+        
+        fig = lr_finder.plot(suggest=True) # Plot
+        lr_suggestion = lr_finder.suggestion()
+        for ax in fig.get_axes():
+            ax.legend(['',str(lr_suggestion)+' (optimal)'])
+        plt.tight_layout()
+        fig.savefig('output/'+args.save_prefix+'_lr_find.pdf')
+        if lr_suggestion is not None:
+            print('Successfully found', str(lr_suggestion), 'as optimal learning rate')
+            model.hparams.lr = lr_suggestion
+        else:
+            print('Unable to find an optimal learning rate; using the predefined ('+str(model.hparams.lr)+')')
+    elif args.max_epochs <= 0:
+        print('Cannot calculate the optimal learning rate when max_epochs <= 0')
     trainer.fit(model)
     print("Training ended. Best checkpoint {} with {} {}.".format(model.best_checkpoint, model.best_metric, args.early_stopping_metric))
     trainer.test(model)
